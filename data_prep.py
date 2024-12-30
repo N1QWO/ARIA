@@ -190,7 +190,6 @@ def load_and_concatenate_tensors(directory_path):
     #print('final_tensor',final_tensor.shape)
     return final_tensor
 
-# Основной процесс
 def process_directory_to_tensor(directory_path, output_file):
     """
     Обрабатывает директорию, загружает данные из файлов, объединяет их в один тензор и сохраняет.
@@ -202,7 +201,7 @@ def process_directory_to_tensor(directory_path, output_file):
     final_tensor = load_and_concatenate_tensors(directory_path)
     #final_tensor = final_tensor.view(-1,5334,10)
     
-    if final_tensor.numel() > 0:  # Проверяем, что тензор не пустой
+    if final_tensor.numel() > 0: 
         torch.save(final_tensor, output_file)
     else:
         print("Данные не были загружены или директория пуста.")
@@ -212,7 +211,7 @@ def ten_ready_data(path, feature, f=2, device='cpu',scale=1):
     data = torch.load(path)
     print(data[0:5])
     # print('data_all',data.shape)
-    data_new = data[:, 1:].reshape(-1, 5334, 9)  # Удаление первого столбца и изменение формы
+    data_new = data[:, 1:].reshape(-1, 5334, 9)  
     # print('data_reshape',data.shape)
     # print(data[10][0])
     if scale<1:
@@ -251,9 +250,47 @@ def req_df(model,df,input_x):
     prev = input_x[:,9:]
     new_data = torch.tensor(df)
 
-    new_inp = torch.cat((prev,predict,new_data),1)
+    new_inp = torch.cat((prev,new_data,predict),1)
     return new_inp,predict
 
+from torch.utils.data import Dataset
+class RNNPrepDataset(Dataset):
+    def __init__(self, data, windows, scale=50):
+        self.data = []
+        self.output = []
+        wind = pd.DataFrame(data)
+        for ma in np.arange(0, 1.01, 0.05):  
+            for att in range(0, 1501, 100):   
+                wind_n = wind[(wind[1] == att) & (wind[4] == ma)]
+                # print(wind_n.shape)
+                wind_n = wind_n[::scale]
+
+                y = np.array(wind_n.iloc[windows:,-1:]).reshape(-1)
+                wind_n.iloc[:,-1] = wind_n.iloc[:,-1].shift(1)
+                #wind_n = wind_n[1:]
+                wind_n = wind_n.rolling(window=windows)
+                
+                dset = [window.values for window in wind_n if len(window) == windows][:-1]
+                #print(len(dset),y.shape)
+                # print('dset',len(dset))
+                # print(y.shape)
+                # exit()
+                self.data.extend(dset)
+                self.output.extend(y)
+
+        self.data = torch.tensor(self.data, dtype=torch.float32)
+        self.output = torch.tensor(self.output, dtype=torch.float32)
+    
+    def __len__(self):
+        return len(self.data)
+    def all_data_X_y(self):
+        
+        return self.data, self.output.reshape(-1,1)
+    
+    def __getitem__(self, idx):
+        x = self.data[idx]
+        y = self.output[idx]
+        return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32)
 
 if __name__ == "__main__":
     #process_directory_to_tensor('data','data_all')
@@ -269,14 +306,22 @@ if __name__ == "__main__":
     #torch.Size([35836, 89]) torch.Size([35836, 1])
     z = 5334
     #X,y,df  = ten_ready_data('data_all',10,9,scale = 50)
-    df_z = torch.tensor([[1,2,3,4,5,6,7,8]])
-    y = torch.tensor([[1000]])
-    input_x = torch.zeros((1,10*9-1))
-    print(df_z.shape,y.shape,input_x.shape)
-    new_inp = torch.cat((input_x,y,df_z),1)[:,9:]
-    print(new_inp.shape)
+    # df_z = torch.tensor([[1,2,3,4,5,6,7,8]])
+    # y = torch.tensor([[1000]])
+    # input_x = torch.zeros((1,10*9-1))
+    # print(df_z.shape,y.shape,input_x.shape)
+    # new_inp = torch.cat((input_x,y,df_z),1)[:,9:]
+    # print(new_inp.shape)
     # print(X)
     # print(X.shape,y.shape)
 
-
+    # data = np.arange(100).reshape(-1,10)
+    # x,y = prep_rnn(data,3)
+    # print(x.shape,y.shape)
     #load_and_concatenate_tensors('data')
+    feature = 10
+    data = torch.load('data_all')[:,1:]
+
+    dataClass  = RNNPrepDataset(data,windows = feature)
+    X,y = dataClass.all_data_X_y()
+    print(X.shape,y.shape)
